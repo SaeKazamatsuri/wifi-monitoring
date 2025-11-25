@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <title>Wi-Fi Monitor Admin</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    :root {
+      color-scheme: light dark;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    body {
+      margin: 0;
+      padding: 0;
+      background: #f5f6fa;
+      color: #222;
+    }
+    header {
+      background: #1f6feb;
+      color: #fff;
+      padding: 1.5rem;
+    }
+    main {
+      padding: 1.5rem;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    section {
+      background: #fff;
+      border-radius: 12px;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+      box-shadow: 0 5px 16px rgba(0, 0, 0, 0.05);
+    }
+    h1, h2 {
+      margin-top: 0;
+    }
+    form {
+      display: grid;
+      gap: 1rem;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      align-items: end;
+    }
+    label {
+      display: flex;
+      flex-direction: column;
+      font-size: 0.9rem;
+      font-weight: 600;
+    }
+    input {
+      padding: 0.6rem;
+      border-radius: 8px;
+      border: 1px solid #ccc;
+      font-size: 1rem;
+    }
+    button {
+      padding: 0.8rem 1rem;
+      border-radius: 8px;
+      background: #1f6feb;
+      color: #fff;
+      border: none;
+      font-size: 1rem;
+      cursor: pointer;
+    }
+    button:disabled {
+      opacity: 0.7;
+      cursor: wait;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    th, td {
+      padding: 0.6rem;
+      text-align: left;
+      border-bottom: 1px solid #e1e4e8;
+    }
+    .status-badge {
+      display: inline-block;
+      padding: 0.2rem 0.6rem;
+      border-radius: 999px;
+      font-size: 0.8rem;
+      font-weight: 600;
+    }
+    .online {
+      background: #daf5d9;
+      color: #0d652d;
+    }
+    .offline {
+      background: #ffd7d7;
+      color: #a40000;
+    }
+    .heatmap-grid {
+      overflow-x: auto;
+    }
+    .heatmap-grid table {
+      font-size: 0.85rem;
+    }
+    .heatmap-grid th {
+      position: sticky;
+      top: 0;
+      background: #fff;
+      z-index: 1;
+    }
+    .heat-cell {
+      min-width: 48px;
+      text-align: center;
+      font-weight: 600;
+      color: #111;
+      transition: background 0.2s ease;
+    }
+    #message {
+      font-size: 0.9rem;
+      min-height: 1.2rem;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Wi-Fi Monitor Admin</h1>
+    <p>Monitor registrations, live status, and heatmaps</p>
+  </header>
+  <main>
+    <section>
+      <h2>Register Member</h2>
+      <form id="memberForm">
+        <label>Student ID
+          <input type="text" id="studentId" name="student_id" required>
+        </label>
+        <label>Name
+          <input type="text" id="name" name="name" required>
+        </label>
+        <label>MAC Address
+          <input type="text" id="mac" name="mac" placeholder="00:11:22:33:44:55" required>
+        </label>
+        <button type="submit" id="submitButton">Submit</button>
+      </form>
+      <div id="message"></div>
+    </section>
+
+    <section>
+      <h2>Members</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Student ID</th>
+            <th>MAC</th>
+          </tr>
+        </thead>
+        <tbody id="membersBody"></tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Latest Snapshot</h2>
+      <p id="snapshotTimestamp">Loading...</p>
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Student ID</th>
+            <th>MAC</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="snapshotBody"></tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Heatmap</h2>
+      <div class="heatmap-grid" id="heatmapGrid">Loading...</div>
+    </section>
+  </main>
+  <script>
+    const form = document.getElementById("memberForm");
+    const message = document.getElementById("message");
+    const submitButton = document.getElementById("submitButton");
+    const membersBody = document.getElementById("membersBody");
+    const snapshotBody = document.getElementById("snapshotBody");
+    const snapshotTimestamp = document.getElementById("snapshotTimestamp");
+    const heatmapGrid = document.getElementById("heatmapGrid");
+
+    async function fetchJSON(url, options = {}) {
+      const response = await fetch(url, options);
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.detail || response.statusText);
+      }
+      return response.json();
+    }
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      submitButton.disabled = true;
+      message.textContent = "Submitting...";
+      const payload = {
+        student_id: form.student_id.value.trim(),
+        name: form.name.value.trim(),
+        mac: form.mac.value.trim()
+      };
+      try {
+        await fetchJSON("/api/members", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        message.textContent = "Member saved.";
+        form.reset();
+        await refreshMembers();
+      } catch (error) {
+        message.textContent = `Registration failed: ${error.message}`;
+      } finally {
+        submitButton.disabled = false;
+      }
+    });
+
+    async function refreshMembers() {
+      const members = await fetchJSON("/api/members");
+      membersBody.innerHTML = "";
+      if (!members.length) {
+        membersBody.innerHTML = "<tr><td colspan='3'>No members found.</td></tr>";
+        return;
+      }
+      const rows = members.map((member) => `
+        <tr>
+          <td>${member.name || "-"}</td>
+          <td>${member.student_id || "-"}</td>
+          <td><code>${member.mac}</code></td>
+        </tr>
+      `);
+      membersBody.innerHTML = rows.join("");
+    }
+
+    async function refreshSnapshot() {
+      const snapshot = await fetchJSON("/api/logs/latest");
+      snapshotBody.innerHTML = "";
+      if (!snapshot.timestamp) {
+        snapshotTimestamp.textContent = "No logs available.";
+        snapshotBody.innerHTML = "<tr><td colspan='4'>Waiting for data</td></tr>";
+        return;
+      }
+      snapshotTimestamp.textContent = `Timestamp: ${snapshot.timestamp}`;
+      if (!snapshot.entries.length) {
+        snapshotBody.innerHTML = "<tr><td colspan='4'>No entries</td></tr>";
+        return;
+      }
+      snapshotBody.innerHTML = snapshot.entries.map((entry) => {
+        const stateClass = entry.connected ? "online" : "offline";
+        const stateLabel = entry.connected ? "ONLINE" : "OFFLINE";
+        return `
+          <tr>
+            <td>${entry.name || "-"}</td>
+            <td>${entry.student_id || "-"}</td>
+            <td><code>${entry.mac}</code></td>
+            <td><span class="status-badge ${stateClass}">${stateLabel}</span></td>
+          </tr>
+        `;
+      }).join("");
+    }
+
+    async function refreshHeatmap() {
+      const data = await fetchJSON("/api/heatmap");
+      if (!data.dates.length || !data.times.length) {
+        heatmapGrid.textContent = "No heatmap data available.";
+        return;
+      }
+      const max = data.max_value || 1;
+      let html = "<table><thead><tr><th>Date</th>";
+      data.times.forEach((time) => {
+        html += `<th>${time}</th>`;
+      });
+      html += "</tr></thead><tbody>";
+      data.dates.forEach((date, rowIndex) => {
+        html += `<tr><th>${date}</th>`;
+        data.matrix[rowIndex].forEach((value) => {
+          const intensity = value / max;
+          const hue = 210 - Math.round(intensity * 120);
+          const lightness = 90 - Math.round(intensity * 45);
+          const background = value === 0 ? "#f6f8fa" : `hsl(${hue}, 70%, ${lightness}%)`;
+          html += `<td class="heat-cell" style="background:${background}">${value}</td>`;
+        });
+        html += "</tr>";
+      });
+      html += "</tbody></table>";
+      heatmapGrid.innerHTML = html;
+    }
+
+    async function bootstrap() {
+      try {
+        await Promise.all([refreshMembers(), refreshSnapshot(), refreshHeatmap()]);
+      } catch (error) {
+        console.error(error);
+      }
+    }
+
+    bootstrap();
+    setInterval(refreshSnapshot, 60 * 1000);
+    setInterval(refreshHeatmap, 5 * 60 * 1000);
+  </script>
+</body>
+</html>
