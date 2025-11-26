@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import logging
 import re
 import threading
 from datetime import datetime
@@ -13,17 +14,29 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field, validator
 
+from main import RouterMonitor, load_config
+
 
 DATA_DIR = Path("data")
 MEMBERS_PATH = DATA_DIR / "members.json"
 LOG_DIR = DATA_DIR / "logs"
 TEMPLATES_DIR = Path(__file__).parent / "templates"
+CONFIG_PATH = Path("config.json")
+OUTPUT_DIR = Path("output")
+HEATMAP_OUTPUT_PATH = OUTPUT_DIR / "heatmap_total.png"
+UNKNOWN_LOG_PATH = DATA_DIR / "unknown.csv"
+WIRELESS_LOG_PATH = DATA_DIR / "wireless.csv"
 
 MAC_PATTERN = re.compile(r"(?:[0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}")
 MEMBERS_LOCK = threading.Lock()
 
 app = FastAPI(title="Wi-Fi Monitor Admin API", version="1.0.0")
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+logger = logging.getLogger("wifi_monitor.server")
+
+MONITOR_THREAD: Optional[threading.Thread] = None
+MONITOR_INSTANCE: Optional[RouterMonitor] = None
+MONITOR_LOCK = threading.Lock()
 
 
 class MemberRecord(BaseModel):
@@ -61,6 +74,34 @@ def ensure_data_dirs() -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     MEMBERS_PATH.touch(exist_ok=True)
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def ensure_monitor_running() -> None:
+    global MONITOR_THREAD, MONITOR_INSTANCE
+    with MONITOR_LOCK:
+        if MONITOR_THREAD and MONITOR_THREAD.is_alive():
+            return
+        try:
+            config = load_config(CONFIG_PATH)
+        except Exception as exc:  # pylint: disable=broad-except
+            logger.error("監視スレッドの初期化に失敗しました: %s", exc)
+            return
+        members = read_members()
+        monitor = RouterMonitor(
+            config=config,
+            members=members,
+            log_dir=LOG_DIR,
+            unknown_log=UNKNOWN_LOG_PATH,
+            wireless_log=WIRELESS_LOG_PATH,
+            members_loader=read_members,
+            heatmap_output=HEATMAP_OUTPUT_PATH,
+        )
+        thread = threading.Thread(target=monitor.run_forever, daemon=True, name="router-monitor")
+        thread.start()
+        MONITOR_THREAD = thread
+        MONITOR_INSTANCE = monitor
+        logger.info("監視スレッドを開始しました（間隔: %ss）", monitor.config.interval_seconds)
 
 
 def read_members() -> List[Dict[str, str]]:
@@ -204,6 +245,12 @@ def build_heatmap_payload() -> HeatmapResponse:
     return HeatmapResponse(dates=dates, times=times, matrix=matrix, max_value=max_value)
 
 
+@app.on_event("startup")
+async def on_startup() -> None:
+    ensure_data_dirs()
+    ensure_monitor_running()
+
+
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request) -> HTMLResponse:
     return templates.TemplateResponse("index.html", {"request": request})
@@ -218,6 +265,8 @@ async def api_get_members() -> List[MemberRecord]:
 async def api_create_member(payload: MemberCreate) -> MemberRecord:
     try:
         saved = upsert_member(payload)
+        if MONITOR_INSTANCE:
+            MONITOR_INSTANCE.refresh_members()
         return MemberRecord(**saved)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
@@ -239,3 +288,9 @@ async def api_heatmap() -> HeatmapResponse:
 @app.get("/api/health")
 async def api_health() -> Dict[str, str]:
     return {"status": "ok"}
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run(app, host="0.0.0.0", port=8000)
