@@ -3,11 +3,12 @@ import csv
 import json
 import logging
 import re
+import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional
+from typing import Callable, Dict, Iterable, List, Optional
 
 import requests
 from bs4 import BeautifulSoup
@@ -189,14 +190,43 @@ class RouterMonitor:
         log_dir: Path,
         unknown_log: Optional[Path] = None,
         wireless_log: Optional[Path] = None,
+        members_loader: Optional[Callable[[], List[Dict[str, str]]]] = None,
+        heatmap_output: Optional[Path] = None,
+        heatmap_max_members: Optional[int] = None,
     ) -> None:
         self.config = config
-        self.members = members
         self.log_dir = log_dir
         self.unknown_log = unknown_log
         self.wireless_log = wireless_log
-        self.member_index = {member["mac"]: member["name"] for member in members}
+        self.members_loader = members_loader
+        self.heatmap_output = heatmap_output
+        self.heatmap_max_members = heatmap_max_members
+        self._members_lock = threading.Lock()
+        self.members: List[Dict[str, str]] = []
+        self.member_index: Dict[str, str] = {}
+        self.refresh_members(members=members)
         logging.debug("Loaded %d members", len(self.members))
+
+    def refresh_members(self, members: Optional[List[Dict[str, str]]] = None) -> None:
+        try:
+            if members is None and self.members_loader:
+                members = self.members_loader()
+        except Exception as exc:  # pylint: disable=broad-except
+            logging.exception("Failed to refresh members: %s", exc)
+            return
+        if members is None:
+            return
+        normalized = []
+        for member in members:
+            mac = member.get("mac")
+            name = member.get("name", "")
+            if not mac:
+                continue
+            normalized.append({"mac": mac, "name": name})
+        with self._members_lock:
+            self.members = normalized
+            self.member_index = {member["mac"]: member["name"] for member in normalized}
+        logging.debug("Member list refreshed (%d entries)", len(self.members))
 
     def run_once(self, html_override: Optional[str] = None) -> None:
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -223,17 +253,21 @@ class RouterMonitor:
             time.sleep(interval_seconds)
 
     def _log_snapshot(self, timestamp: str, clients: List[Dict[str, Optional[str]]]) -> None:
-        active_macs = {client["mac"] for client in clients}
+        self.refresh_members()
+        with self._members_lock:
+            members = list(self.members)
+            member_index = dict(self.member_index)
+        active_macs = {client["mac"] for client in clients if client.get("mac")}
         log_file = self.log_dir / f"{datetime.now():%Y-%m-%d}.csv"
         rows = []
-        for member in self.members:
+        for member in members:
             mac = member["mac"]
             connected = 1 if mac in active_macs else 0
             rows.append([timestamp, mac, connected])
         append_rows(log_file, rows)
         logging.info("Logged %d members to %s", len(rows), log_file)
 
-        unknown_clients = [client for client in clients if client["mac"] not in self.member_index]
+        unknown_clients = [client for client in clients if client["mac"] not in member_index]
         if self.unknown_log and unknown_clients:
             append_unknown_rows(self.unknown_log, unknown_clients, timestamp)
             logging.info("Recorded %d unknown clients", len(unknown_clients))
@@ -242,6 +276,31 @@ class RouterMonitor:
             wireless_clients = [client for client in clients if client.get("connection_type") == "wireless"]
             append_wireless_rows(self.wireless_log, wireless_clients, timestamp)
             logging.info("Logged %d wireless clients", len(wireless_clients))
+        self._render_heatmap()
+
+    def _render_heatmap(self) -> None:
+        if not self.heatmap_output:
+            return
+        try:
+            from scripts.log_utils import load_logs  # type: ignore
+            from scripts.generate_heatmap_total import build_heatmap_dataframe, render_heatmap  # type: ignore
+            df = load_logs(self.log_dir)
+        except FileNotFoundError:
+            logging.debug("Skip heatmap update: no logs yet in %s", self.log_dir)
+            return
+        except Exception as exc:  # pylint: disable=broad-except
+            logging.exception("Failed to load logs for heatmap: %s", exc)
+            return
+        if df.empty:
+            logging.debug("Skip heatmap update: empty dataframe")
+            return
+        try:
+            pivot = build_heatmap_dataframe(df)
+            max_members = self.heatmap_max_members or len(df["mac"].unique()) or len(self.members) or 1
+            render_heatmap(pivot, self.heatmap_output, max_members)
+            logging.info("Heatmap image updated at %s", self.heatmap_output)
+        except Exception as exc:  # pylint: disable=broad-except
+            logging.exception("Failed to render heatmap: %s", exc)
 
 
 def parse_args() -> argparse.Namespace:
@@ -255,6 +314,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--once", action="store_true", help="Run one snapshot and exit")
     parser.add_argument("--html-file", type=Path, default=None, help="Use local HTML file instead of router access")
     parser.add_argument("--log-level", default="INFO", help="Logging level (default: INFO)")
+    parser.add_argument("--heatmap-output", type=Path, default=None, help="Render heatmap PNG after each snapshot")
+    parser.add_argument("--heatmap-max-members", type=int, default=None, help="Color scale upper bound for heatmap")
     return parser.parse_args()
 
 
@@ -278,6 +339,9 @@ def main() -> None:
         log_dir=args.log_dir,
         unknown_log=args.unknown_log,
         wireless_log=args.wireless_log,
+        members_loader=lambda: load_members(args.members),
+        heatmap_output=args.heatmap_output,
+        heatmap_max_members=args.heatmap_max_members,
     )
 
     html_override = None
