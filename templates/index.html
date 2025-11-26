@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="utf-8">
-  <title>Wi-Fi Monitor Admin</title>
+  <title>Wi-Fiモニターダッシュボード</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
     :root {
@@ -117,35 +117,35 @@
 </head>
 <body>
   <header>
-    <h1>Wi-Fi Monitor Admin</h1>
-    <p>Monitor registrations, live status, and heatmaps</p>
+    <h1>Wi-Fiモニターダッシュボード</h1>
+    <p>登録管理・最新状態・ヒートマップを確認できます</p>
   </header>
   <main>
     <section>
-      <h2>Register Member</h2>
+      <h2>メンバー登録</h2>
       <form id="memberForm">
-        <label>Student ID
+        <label>学生ID
           <input type="text" id="studentId" name="student_id" required>
         </label>
-        <label>Name
+        <label>氏名
           <input type="text" id="name" name="name" required>
         </label>
-        <label>MAC Address
+        <label>MACアドレス
           <input type="text" id="mac" name="mac" placeholder="00:11:22:33:44:55" required>
         </label>
-        <button type="submit" id="submitButton">Submit</button>
+        <button type="submit" id="submitButton">登録する</button>
       </form>
       <div id="message"></div>
     </section>
 
     <section>
-      <h2>Members</h2>
+      <h2>登録済みメンバー</h2>
       <table>
         <thead>
           <tr>
-            <th>Name</th>
-            <th>Student ID</th>
-            <th>MAC</th>
+            <th>氏名</th>
+            <th>学生ID</th>
+            <th>MACアドレス</th>
           </tr>
         </thead>
         <tbody id="membersBody"></tbody>
@@ -153,15 +153,15 @@
     </section>
 
     <section>
-      <h2>Latest Snapshot</h2>
-      <p id="snapshotTimestamp">Loading...</p>
+      <h2>最新スナップショット</h2>
+      <p id="snapshotTimestamp">読み込み中...</p>
       <table>
         <thead>
           <tr>
-            <th>Name</th>
-            <th>Student ID</th>
-            <th>MAC</th>
-            <th>Status</th>
+            <th>氏名</th>
+            <th>学生ID</th>
+            <th>MACアドレス</th>
+            <th>状態</th>
           </tr>
         </thead>
         <tbody id="snapshotBody"></tbody>
@@ -169,8 +169,8 @@
     </section>
 
     <section>
-      <h2>Heatmap</h2>
-      <div class="heatmap-grid" id="heatmapGrid">Loading...</div>
+      <h2>ヒートマップ</h2>
+      <div class="heatmap-grid" id="heatmapGrid">読み込み中...</div>
     </section>
   </main>
   <script>
@@ -194,7 +194,7 @@
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
       submitButton.disabled = true;
-      message.textContent = "Submitting...";
+      message.textContent = "登録処理中...";
       const payload = {
         student_id: form.student_id.value.trim(),
         name: form.name.value.trim(),
@@ -206,11 +206,11 @@
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload)
         });
-        message.textContent = "Member saved.";
+        message.textContent = "メンバーを登録しました。";
         form.reset();
         await refreshMembers();
       } catch (error) {
-        message.textContent = `Registration failed: ${error.message}`;
+        message.textContent = `登録に失敗しました: ${error.message}`;
       } finally {
         submitButton.disabled = false;
       }
@@ -220,7 +220,7 @@
       const members = await fetchJSON("/api/members");
       membersBody.innerHTML = "";
       if (!members.length) {
-        membersBody.innerHTML = "<tr><td colspan='3'>No members found.</td></tr>";
+        membersBody.innerHTML = "<tr><td colspan='3'>メンバーが登録されていません。</td></tr>";
         return;
       }
       const rows = members.map((member) => `
@@ -237,18 +237,18 @@
       const snapshot = await fetchJSON("/api/logs/latest");
       snapshotBody.innerHTML = "";
       if (!snapshot.timestamp) {
-        snapshotTimestamp.textContent = "No logs available.";
-        snapshotBody.innerHTML = "<tr><td colspan='4'>Waiting for data</td></tr>";
+        snapshotTimestamp.textContent = "ログがまだありません。";
+        snapshotBody.innerHTML = "<tr><td colspan='4'>データ待機中です</td></tr>";
         return;
       }
-      snapshotTimestamp.textContent = `Timestamp: ${snapshot.timestamp}`;
+      snapshotTimestamp.textContent = `記録時刻: ${snapshot.timestamp}`;
       if (!snapshot.entries.length) {
-        snapshotBody.innerHTML = "<tr><td colspan='4'>No entries</td></tr>";
+        snapshotBody.innerHTML = "<tr><td colspan='4'>エントリはありません。</td></tr>";
         return;
       }
       snapshotBody.innerHTML = snapshot.entries.map((entry) => {
         const stateClass = entry.connected ? "online" : "offline";
-        const stateLabel = entry.connected ? "ONLINE" : "OFFLINE";
+        const stateLabel = entry.connected ? "オンライン" : "オフライン";
         return `
           <tr>
             <td>${entry.name || "-"}</td>
@@ -263,11 +263,11 @@
     async function refreshHeatmap() {
       const data = await fetchJSON("/api/heatmap");
       if (!data.dates.length || !data.times.length) {
-        heatmapGrid.textContent = "No heatmap data available.";
+        heatmapGrid.textContent = "ヒートマップを描画できるデータがありません。";
         return;
       }
       const max = data.max_value || 1;
-      let html = "<table><thead><tr><th>Date</th>";
+      let html = "<table><thead><tr><th>日付</th>";
       data.times.forEach((time) => {
         html += `<th>${time}</th>`;
       });
