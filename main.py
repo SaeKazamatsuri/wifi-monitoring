@@ -9,9 +9,10 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
-from typing import Callable, Dict, Iterable, List, Optional
+from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 import requests
+from requests.auth import AuthBase, HTTPDigestAuth
 from bs4 import BeautifulSoup
 from bs4.element import Tag
 
@@ -19,6 +20,7 @@ from bs4.element import Tag
 DEFAULT_INTERVAL_MINUTES = 15
 DEFAULT_DEVICE_PATH = "DEV_device.htm"
 MAC_PATTERN = re.compile(r"(?:[0-9A-Fa-f]{2}[-:]){5}[0-9A-Fa-f]{2}")
+AuthType = Union[Tuple[str, str], AuthBase]
 
 
 @dataclass
@@ -29,6 +31,7 @@ class MonitorConfig:
     device_path: str = DEFAULT_DEVICE_PATH
     interval_minutes: int = DEFAULT_INTERVAL_MINUTES
     verify_tls: bool = False
+    auth_method: str = "basic"
 
 
 def load_json(path: Path) -> dict:
@@ -63,6 +66,9 @@ def load_config(path: Path) -> MonitorConfig:
             interval_minutes = max(1, (int(legacy_seconds) + 59) // 60)
     if interval_minutes is None:
         interval_minutes = DEFAULT_INTERVAL_MINUTES
+    auth_method = data.get("auth_method", "basic").lower()
+    if auth_method not in {"basic", "digest", "auto"}:
+        raise ValueError(f"auth_method must be basic, digest, or auto (got {auth_method})")
     return MonitorConfig(
         router_url=data["router_url"],
         device_path=data.get("device_path", DEFAULT_DEVICE_PATH),
@@ -70,16 +76,46 @@ def load_config(path: Path) -> MonitorConfig:
         password=data["password"],
         interval_minutes=interval_minutes,
         verify_tls=data.get("verify_tls", False),
+        auth_method=auth_method,
     )
 
 
-def fetch_router_page(url: str, username: str, password: str, verify_tls: bool) -> str:
+def _build_auth_chain(username: str, password: str, auth_method: str) -> Sequence[AuthType]:
+    """認証方法に応じて試行する Auth オブジェクトの並びを返す。"""
+    method = auth_method.lower()
+    if method == "basic":
+        return [(username, password)]
+    if method == "digest":
+        return [HTTPDigestAuth(username, password)]
+    if method == "auto":
+        return [(username, password), HTTPDigestAuth(username, password)]
+    raise ValueError(f"Unsupported auth_method: {auth_method}")
+
+
+def fetch_router_page(url: str, username: str, password: str, verify_tls: bool, auth_method: str) -> str:
     if not url:
         raise ValueError("Router URL is not configured")
     logging.debug("Fetching router page %s", url)
-    response = requests.get(url, auth=(username, password), timeout=15, verify=verify_tls)
-    response.raise_for_status()
-    return response.text
+    last_exc: Optional[Exception] = None
+    for auth in _build_auth_chain(username, password, auth_method):
+        try:
+            response = requests.get(url, auth=auth, timeout=15, verify=verify_tls)
+            response.raise_for_status()
+            if auth_method == "auto" and response.history:
+                logging.debug("fetch_router_page succeeded via auto auth (redirects=%d)", len(response.history))
+            return response.text
+        except requests.HTTPError as exc:
+            last_exc = exc
+            if response.status_code == 401 and auth_method == "auto":
+                logging.debug("Auth failed with %s, retrying next auth method", type(auth).__name__)
+                continue
+            raise
+        except Exception as exc:  # pylint: disable=broad-except
+            last_exc = exc
+            raise
+    if last_exc:
+        raise last_exc
+    raise RuntimeError("fetch_router_page failed without attempting any auth method")
 
 
 def resolve_router_url(router_url: str, device_path: str) -> str:
@@ -262,6 +298,7 @@ class RouterMonitor:
                 self.config.username,
                 self.config.password,
                 self.config.verify_tls,
+                self.config.auth_method,
             )
         else:
             html = html_override

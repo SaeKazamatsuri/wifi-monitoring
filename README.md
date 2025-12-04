@@ -6,6 +6,7 @@ Python製のWi-Fiクライアント監視ツールです。NETGEARルーター�
 - 推奨: Python 3.11 以降で仮想環境を作成 (`python -m venv .venv` → 有効化)。
 - 依存関係をインストール: `pip install -r requirements.txt`
 - 設定ファイルを用意: `config.example.json` を参考に `config.json` を配置。
+  - `auth_method`: `basic` / `digest` / `auto` を選択可能。ルーターがDigest認証のみ受け付ける場合は `digest` か `auto` にする。
 - メンバー一覧を準備: `data/members.json` を UTF-8 (BOM可) で作成。
 
 ## 使い方

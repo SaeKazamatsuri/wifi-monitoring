@@ -4,5 +4,6 @@
   "username": "username",
   "password": "password",
   "interval_minutes": 15,
-  "verify_tls": false
+  "verify_tls": false,
+  "auth_method": "auto"
 }
