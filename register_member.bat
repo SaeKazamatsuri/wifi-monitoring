@@ -1,21 +1,22 @@
 @echo off
+chcp 65001 >nul
 setlocal enabledelayedexpansion
 
-set "SERVER_URL=http://127.0.0.1:8000/api/members"
+set "SERVER_URL=http://192.168.1.142:8000/api/members"
 if not "%~1"=="" (
   set "SERVER_URL=%~1"
 )
 
-echo === Wi-Fi Monitor Member Registration ===
-set /p "STUDENT_ID=Enter student ID: "
+echo === Wi-Fi モニター メンバー登録 ===
+set /p "STUDENT_ID=学籍番号を入力してください: "
 if "%STUDENT_ID%"=="" (
-  echo Student ID is required.
+  echo 学籍番号は必須です。
   goto :eof
 )
 
-set /p "NAME=Enter name: "
+set /p "NAME=名前を入力してください（日本語可）: "
 if "%NAME%"=="" (
-  echo Name is required.
+  echo 名前は必須です。
   goto :eof
 )
 
@@ -24,24 +25,22 @@ for /f "usebackq tokens=* delims=" %%A in (`powershell -NoProfile -Command " $ma
 )
 
 if "%MAC%"=="" (
-  echo Failed to detect a MAC address automatically.
+  echo MAC アドレスの取得に失敗しました。
   goto :eof
 )
 
-echo Using MAC address: %MAC%
-echo Sending data to %SERVER_URL% ...
+echo 使用する MAC アドレス: %MAC%
+echo サーバーへ送信しています... (%SERVER_URL%)
 
 powershell -NoProfile -Command ^
   "$ErrorActionPreference = 'Stop';" ^
-  "$payload = @{ student_id = $env:STUDENT_ID; name = $env:NAME; mac = $env:MAC } | ConvertTo-Json;" ^
-  "$response = Invoke-RestMethod -Method Post -Uri '%SERVER_URL%' -ContentType 'application/json' -Body $payload;" ^
-  "Write-Host 'Registration succeeded.';" ^
-  "$response | ConvertTo-Json -Depth 2"
+  "$payload = @{ student_id = $env:STUDENT_ID; name = $env:NAME; mac = $env:MAC } | ConvertTo-Json -Compress;" ^
+  "Invoke-RestMethod -Method Post -Uri '%SERVER_URL%' -ContentType 'application/json; charset=utf-8' -Body ([System.Text.Encoding]::UTF8.GetBytes($payload)) | ConvertTo-Json -Depth 2 | Write-Host"
 
 if errorlevel 1 (
-  echo Request failed.
+  echo リクエスト失敗...
 ) else (
-  echo Done.
+  echo 登録が完了しました。
 )
 
 endlocal
