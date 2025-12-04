@@ -8,6 +8,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import urljoin, urlparse
 from typing import Callable, Dict, Iterable, List, Optional
 
 import requests
@@ -16,6 +17,7 @@ from bs4.element import Tag
 
 
 DEFAULT_INTERVAL = 180
+DEFAULT_DEVICE_PATH = "DEV_device.htm"
 MAC_PATTERN = re.compile(r"(?:[0-9A-Fa-f]{2}[-:]){5}[0-9A-Fa-f]{2}")
 
 
@@ -24,6 +26,7 @@ class MonitorConfig:
     router_url: str
     username: str
     password: str
+    device_path: str = DEFAULT_DEVICE_PATH
     interval_seconds: int = DEFAULT_INTERVAL
     verify_tls: bool = False
 
@@ -55,6 +58,7 @@ def load_config(path: Path) -> MonitorConfig:
     data = load_json(path)
     return MonitorConfig(
         router_url=data["router_url"],
+        device_path=data.get("device_path", DEFAULT_DEVICE_PATH),
         username=data["username"],
         password=data["password"],
         interval_seconds=data.get("interval_seconds", DEFAULT_INTERVAL),
@@ -69,6 +73,20 @@ def fetch_router_page(url: str, username: str, password: str, verify_tls: bool) 
     response = requests.get(url, auth=(username, password), timeout=15, verify=verify_tls)
     response.raise_for_status()
     return response.text
+
+
+def resolve_router_url(router_url: str, device_path: str) -> str:
+    if not router_url:
+        raise ValueError("Router URL is not configured")
+    parsed = urlparse(router_url)
+    path = parsed.path
+    has_file_component = bool(Path(path).suffix) if path else False
+    if has_file_component:
+        return router_url
+    base = router_url if router_url.endswith("/") else f"{router_url}/"
+    resolved = urljoin(base, device_path.lstrip("/"))
+    logging.debug("Resolved router URL: %s", resolved)
+    return resolved
 
 
 def parse_clients(html: str) -> List[Dict[str, Optional[str]]]:
@@ -231,8 +249,9 @@ class RouterMonitor:
     def run_once(self, html_override: Optional[str] = None) -> None:
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
         if html_override is None:
+            resolved_url = resolve_router_url(self.config.router_url, self.config.device_path)
             html = fetch_router_page(
-                self.config.router_url,
+                resolved_url,
                 self.config.username,
                 self.config.password,
                 self.config.verify_tls,
@@ -259,10 +278,10 @@ class RouterMonitor:
             member_index = dict(self.member_index)
         active_macs = {client["mac"] for client in clients if client.get("mac")}
         log_file = self.log_dir / f"{datetime.now():%Y-%m-%d}.csv"
-        rows = []
+        rows: List[List[str]] = []
         for member in members:
             mac = member["mac"]
-            connected = 1 if mac in active_macs else 0
+            connected = "1" if mac in active_macs else "0"
             rows.append([timestamp, mac, connected])
         append_rows(log_file, rows)
         logging.info("Logged %d members to %s", len(rows), log_file)

@@ -5,14 +5,15 @@ import json
 import logging
 import re
 import threading
+from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, TypedDict
 
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 
 from main import RouterMonitor, load_config
 
@@ -30,7 +31,6 @@ WIRELESS_LOG_PATH = DATA_DIR / "wireless.csv"
 MAC_PATTERN = re.compile(r"(?:[0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}")
 MEMBERS_LOCK = threading.Lock()
 
-app = FastAPI(title="Wi-Fi Monitor Admin API", version="1.0.0")
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 logger = logging.getLogger("wifi_monitor.server")
 
@@ -50,7 +50,7 @@ class MemberCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=128)
     mac: str
 
-    @validator("mac")
+    @field_validator("mac")
     def validate_mac(cls, value: str) -> str:
         normalized = normalize_mac(value)
         return normalized
@@ -61,6 +61,12 @@ class HeatmapResponse(BaseModel):
     times: List[str]
     matrix: List[List[int]]
     max_value: int
+
+
+class LogRow(TypedDict):
+    timestamp: str
+    mac: str
+    connected: int
 
 
 def normalize_mac(mac: str) -> str:
@@ -104,6 +110,16 @@ def ensure_monitor_running() -> None:
         logger.info("監視スレッドを開始しました（間隔: %ss）", monitor.config.interval_seconds)
 
 
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    ensure_data_dirs()
+    ensure_monitor_running()
+    yield
+
+
+app = FastAPI(title="Wi-Fi Monitor Admin API", version="1.0.0", lifespan=lifespan)
+
+
 def read_members() -> List[Dict[str, str]]:
     ensure_data_dirs()
     if MEMBERS_PATH.stat().st_size == 0:
@@ -139,16 +155,16 @@ def upsert_member(new_member: MemberCreate) -> Dict[str, str]:
             existing["name"] = new_member.name
             existing["student_id"] = new_member.student_id
         else:
-            members.append(new_member.dict())
+            members.append(new_member.model_dump())
         members.sort(key=lambda item: item["name"].lower())
         write_members(members)
-        return new_member.dict()
+        return new_member.model_dump()
 
 
-def iter_log_rows() -> List[Dict[str, str]]:
+def iter_log_rows() -> List[LogRow]:
     ensure_data_dirs()
     csv_files = sorted(LOG_DIR.glob("*.csv"))
-    rows: List[Dict[str, str]] = []
+    rows: List[LogRow] = []
     for csv_file in csv_files:
         with csv_file.open(newline="", encoding="utf-8") as f:
             reader = csv.DictReader(f)
@@ -177,23 +193,23 @@ def build_latest_snapshot() -> Optional[Dict[str, object]]:
     if not csv_files:
         return None
     latest_file = csv_files[-1]
-    rows: List[Dict[str, str]] = []
+    rows: List[LogRow] = []
     with latest_file.open(newline="", encoding="utf-8") as f:
         reader = list(csv.DictReader(f))
         if not reader:
             return None
         last_timestamp = reader[-1]["timestamp"]
-        for row in reader:
-            if row["timestamp"] == last_timestamp:
+        for csv_row in reader:
+            if csv_row["timestamp"] == last_timestamp:
                 try:
-                    normalized_mac = normalize_mac(row["mac"])
+                    normalized_mac = normalize_mac(csv_row["mac"])
                 except ValueError:
                     continue
                 rows.append(
                     {
-                        "timestamp": row["timestamp"],
+                        "timestamp": csv_row["timestamp"],
                         "mac": normalized_mac,
-                        "connected": int(row["connected"]),
+                        "connected": int(csv_row["connected"]),
                     }
                 )
     members_by_mac = {member["mac"]: member for member in read_members()}
@@ -243,12 +259,6 @@ def build_heatmap_payload() -> HeatmapResponse:
             row_values.append(counts.get(date, {}).get(time, 0))
         matrix.append(row_values)
     return HeatmapResponse(dates=dates, times=times, matrix=matrix, max_value=max_value)
-
-
-@app.on_event("startup")
-async def on_startup() -> None:
-    ensure_data_dirs()
-    ensure_monitor_running()
 
 
 @app.get("/", response_class=HTMLResponse)

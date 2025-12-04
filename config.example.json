@@ -1,5 +1,6 @@
-﻿{
+{
   "router_url": "http://192.168.1.1/",
+  "device_path": "DEV_device.htm",
   "username": "username",
   "password": "password",
   "interval_seconds": 180,
