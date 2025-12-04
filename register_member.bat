@@ -8,13 +8,13 @@ if not "%~1"=="" (
 )
 
 echo === Wi-Fi モニター メンバー登録 ===
-set /p "STUDENT_ID=学籍番号を入力してください(例：12A3456): "
+set /p "STUDENT_ID=学籍番号を入力してください: "
 if "%STUDENT_ID%"=="" (
   echo 学籍番号は必須です。
   goto :eof
 )
 
-set /p "NAME=名前を入力してください（日本語）: "
+set /p "NAME=名前を入力してください（日本語可）: "
 if "%NAME%"=="" (
   echo 名前は必須です。
   goto :eof
@@ -33,6 +33,15 @@ if "%MAC%"=="" (
 
 echo 使用する MAC アドレス: %MAC%
 echo サーバーへ送信しています... (%SERVER_URL%)
+
+powershell -NoProfile -Command ^
+  "[Console]::OutputEncoding = [Text.Encoding]::UTF8;" ^
+  "[Console]::InputEncoding  = [Text.Encoding]::UTF8;" ^
+  "$sid  = [Text.Encoding]::UTF8.GetString([Text.Encoding]::Default.GetBytes($env:STUDENT_ID));" ^
+  "$name = [Text.Encoding]::UTF8.GetString([Text.Encoding]::Default.GetBytes($env:NAME));" ^
+  "$mac  = $env:MAC;" ^
+  "$payload = @{ student_id = $sid; name = $name; mac = $mac } | ConvertTo-Json -Compress;" ^
+  "Invoke-RestMethod -Method Post -Uri '%SERVER_URL%' -ContentType 'application/json; charset=utf-8' -Body ([System.Text.Encoding]::UTF8.GetBytes($payload)) | ConvertTo-Json -Depth 3 | Write-Host"
 
 if errorlevel 1 (
   echo リクエスト失敗…
