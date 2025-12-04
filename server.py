@@ -107,7 +107,7 @@ def ensure_monitor_running() -> None:
         thread.start()
         MONITOR_THREAD = thread
         MONITOR_INSTANCE = monitor
-        logger.info("監視スレッドを開始しました（間隔: %ss）", monitor.config.interval_seconds)
+        logger.info("監視スレッドを開始しました（間隔: %s分）", monitor.config.interval_minutes)
 
 
 @asynccontextmanager

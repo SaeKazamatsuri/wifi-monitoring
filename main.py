@@ -6,7 +6,7 @@ import re
 import threading
 import time
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
 from typing import Callable, Dict, Iterable, List, Optional
@@ -16,7 +16,7 @@ from bs4 import BeautifulSoup
 from bs4.element import Tag
 
 
-DEFAULT_INTERVAL = 180
+DEFAULT_INTERVAL_MINUTES = 15
 DEFAULT_DEVICE_PATH = "DEV_device.htm"
 MAC_PATTERN = re.compile(r"(?:[0-9A-Fa-f]{2}[-:]){5}[0-9A-Fa-f]{2}")
 
@@ -27,7 +27,7 @@ class MonitorConfig:
     username: str
     password: str
     device_path: str = DEFAULT_DEVICE_PATH
-    interval_seconds: int = DEFAULT_INTERVAL
+    interval_minutes: int = DEFAULT_INTERVAL_MINUTES
     verify_tls: bool = False
 
 
@@ -56,12 +56,19 @@ def normalize_mac(mac: str) -> str:
 
 def load_config(path: Path) -> MonitorConfig:
     data = load_json(path)
+    interval_minutes = data.get("interval_minutes")
+    if interval_minutes is None:
+        legacy_seconds = data.get("interval_seconds")
+        if legacy_seconds is not None:
+            interval_minutes = max(1, (int(legacy_seconds) + 59) // 60)
+    if interval_minutes is None:
+        interval_minutes = DEFAULT_INTERVAL_MINUTES
     return MonitorConfig(
         router_url=data["router_url"],
         device_path=data.get("device_path", DEFAULT_DEVICE_PATH),
         username=data["username"],
         password=data["password"],
-        interval_seconds=data.get("interval_seconds", DEFAULT_INTERVAL),
+        interval_minutes=interval_minutes,
         verify_tls=data.get("verify_tls", False),
     )
 
@@ -261,15 +268,32 @@ class RouterMonitor:
         clients = parse_clients(html)
         self._log_snapshot(timestamp, clients)
 
-    def run_forever(self, interval: Optional[int] = None, html_override: Optional[str] = None) -> None:
-        interval_seconds = interval or self.config.interval_seconds
-        logging.info("Starting monitor loop (interval=%ss)", interval_seconds)
+    def run_forever(self, interval_minutes: Optional[int] = None, html_override: Optional[str] = None) -> None:
+        period_minutes = interval_minutes or self.config.interval_minutes
+        if period_minutes <= 0:
+            raise ValueError("Interval minutes must be positive")
+        logging.info("Starting monitor loop (interval=%smin)", period_minutes)
         while True:
+            now = datetime.now()
+            next_run_at = self._calculate_next_run(now, period_minutes)
+            wait_seconds = max((next_run_at - now).total_seconds(), 0)
+            if wait_seconds > 0:
+                logging.debug("Sleeping %.2fs until next slot %s", wait_seconds, next_run_at)
+                time.sleep(wait_seconds)
             try:
                 self.run_once(html_override=html_override)
             except Exception as exc:  # pylint: disable=broad-except
                 logging.exception("Failed to record snapshot: %s", exc)
-            time.sleep(interval_seconds)
+
+    @staticmethod
+    def _calculate_next_run(now: datetime, interval_minutes: int) -> datetime:
+        remainder = now.minute % interval_minutes
+        at_boundary = remainder == 0 and now.second == 0 and now.microsecond == 0
+        if at_boundary:
+            return now.replace(second=0, microsecond=0)
+        minutes_to_add = interval_minutes - remainder
+        base = now.replace(second=0, microsecond=0)
+        return base + timedelta(minutes=minutes_to_add)
 
     def _log_snapshot(self, timestamp: str, clients: List[Dict[str, Optional[str]]]) -> None:
         self.refresh_members()
@@ -329,7 +353,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--log-dir", type=Path, default=Path("data/logs"), help="Directory for CSV logs")
     parser.add_argument("--unknown-log", type=Path, default=None, help="Optional CSV for unknown clients")
     parser.add_argument("--wireless-log", type=Path, default=None, help="Optional CSV for wireless client snapshots")
-    parser.add_argument("--interval", type=int, default=None, help="Override interval seconds")
+    parser.add_argument(
+        "--interval-minutes",
+        "--interval",
+        dest="interval_minutes",
+        type=int,
+        default=None,
+        help="Override interval minutes (aligned to 00 minute cycle)",
+    )
     parser.add_argument("--once", action="store_true", help="Run one snapshot and exit")
     parser.add_argument("--html-file", type=Path, default=None, help="Use local HTML file instead of router access")
     parser.add_argument("--log-level", default="INFO", help="Logging level (default: INFO)")
@@ -370,7 +401,7 @@ def main() -> None:
     if args.once:
         monitor.run_once(html_override=html_override)
     else:
-        monitor.run_forever(interval=args.interval, html_override=html_override)
+        monitor.run_forever(interval_minutes=args.interval_minutes, html_override=html_override)
 
 
 if __name__ == "__main__":

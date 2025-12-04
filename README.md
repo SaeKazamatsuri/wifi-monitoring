@@ -11,6 +11,7 @@ Python製のWi-Fiクライアント監視ツールです。NETGEARルーター�
 ## 使い方
 - クライアント監視 (CLI): `python main.py --config config.json --members data/members.json`
   - `--once` で1回だけ取得、`--html-file` で保存済みHTMLを解析可能。
+  - ログ取得間隔は分単位で00分起点の固定サイクル（デフォルト15分）。`--interval-minutes` で変更可能。
 - Web API/管理画面 (FastAPI): `python server.py` → `http://localhost:8000` を開く。
 - 解析スクリプト (scripts/):
   - `generate_heatmap_total.py` : 利用状況ヒートマップをPNG出力。

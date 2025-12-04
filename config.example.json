@@ -3,6 +3,6 @@
   "device_path": "DEV_device.htm",
   "username": "username",
   "password": "password",
-  "interval_seconds": 180,
+  "interval_minutes": 15,
   "verify_tls": false
 }
