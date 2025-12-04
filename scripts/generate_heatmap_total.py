@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
 
-from log_utils import load_logs
+from .wifi_log_utils import load_logs
 
 
 def build_heatmap_dataframe(df: pd.DataFrame) -> pd.DataFrame:

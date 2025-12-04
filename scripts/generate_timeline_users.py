@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from log_utils import load_logs, load_members
+from .wifi_log_utils import load_logs, load_members
 
 
 def build_timeline_matrix(df: pd.DataFrame, members_df: pd.DataFrame) -> tuple[np.ndarray, List[str], List[str]]:

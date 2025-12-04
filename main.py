@@ -282,7 +282,7 @@ class RouterMonitor:
         if not self.heatmap_output:
             return
         try:
-            from scripts.log_utils import load_logs  # type: ignore
+            from scripts.wifi_log_utils import load_logs  # type: ignore
             from scripts.generate_heatmap_total import build_heatmap_dataframe, render_heatmap  # type: ignore
             df = load_logs(self.log_dir)
         except FileNotFoundError:
