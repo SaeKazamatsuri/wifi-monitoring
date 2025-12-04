@@ -1,0 +1,10 @@
+fastapi
+uvicorn[standard]
+pydantic
+requests
+beautifulsoup4
+pandas
+numpy
+matplotlib
+seaborn
+jinja2
