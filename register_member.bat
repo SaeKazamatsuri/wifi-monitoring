@@ -8,19 +8,21 @@ if not "%~1"=="" (
 )
 
 echo === Wi-Fi モニター メンバー登録 ===
-set /p "STUDENT_ID=学籍番号を入力してください: "
+set /p "STUDENT_ID=学籍番号を入力してください(例：12A3456): "
 if "%STUDENT_ID%"=="" (
   echo 学籍番号は必須です。
   goto :eof
 )
 
-set /p "NAME=名前を入力してください（日本語可）: "
+set /p "NAME=名前を入力してください（日本語）: "
 if "%NAME%"=="" (
   echo 名前は必須です。
   goto :eof
 )
 
-for /f "usebackq tokens=* delims=" %%A in (`powershell -NoProfile -Command " $mac = (Get-NetAdapter | Where-Object {$_.Status -eq 'Up'} | Select-Object -First 1 -ExpandProperty MacAddress); if (-not $mac) { $mac = (Get-NetAdapter | Select-Object -First 1 -ExpandProperty MacAddress) } ; if ($mac) { $mac } "`) do (
+for /f "usebackq tokens=* delims=" %%A in (
+  `powershell -NoProfile -Command " $mac = (Get-NetAdapter | Where-Object {$_.Status -eq 'Up'} | Select-Object -First 1 -ExpandProperty MacAddress); if (-not $mac) { $mac = (Get-NetAdapter | Select-Object -First 1 -ExpandProperty MacAddress) }; $mac "`
+) do (
   set "MAC=%%A"
 )
 
@@ -32,13 +34,8 @@ if "%MAC%"=="" (
 echo 使用する MAC アドレス: %MAC%
 echo サーバーへ送信しています... (%SERVER_URL%)
 
-powershell -NoProfile -Command ^
-  "$ErrorActionPreference = 'Stop';" ^
-  "$payload = @{ student_id = $env:STUDENT_ID; name = $env:NAME; mac = $env:MAC } | ConvertTo-Json -Compress;" ^
-  "Invoke-RestMethod -Method Post -Uri '%SERVER_URL%' -ContentType 'application/json; charset=utf-8' -Body ([System.Text.Encoding]::UTF8.GetBytes($payload)) | ConvertTo-Json -Depth 2 | Write-Host"
-
 if errorlevel 1 (
-  echo リクエスト失敗...
+  echo リクエスト失敗…
 ) else (
   echo 登録が完了しました。
 )
