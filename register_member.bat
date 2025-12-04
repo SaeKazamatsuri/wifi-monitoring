@@ -7,16 +7,16 @@ if not "%~1"=="" (
   set "SERVER_URL=%~1"
 )
 
-echo === Wi-Fi ãƒ¢ãƒ‹ã‚¿ãƒ¼ ãƒ¡ãƒ³ãƒãƒ¼ç™»éŒ² ===
-set /p "STUDENT_ID=å­¦ç±ç•ªå·ã‚’å…¥åŠ›ã—ã¦ãã ã•ã„: "
+echo === Wi-Fi ƒ‚ƒjƒ^[ ƒƒ“ƒo[“o˜^ ===
+set /p "STUDENT_ID=ŠwÐ”Ô†‚ð“ü—Í‚µ‚Ä‚­‚¾‚³‚¢: "
 if "%STUDENT_ID%"=="" (
-  echo å­¦ç±ç•ªå·ã¯å¿…é ˆã§ã™ã€‚
+  echo ŠwÐ”Ô†‚Í•K{‚Å‚·B
   goto :eof
 )
 
-set /p "NAME=åå‰ã‚’å…¥åŠ›ã—ã¦ãã ã•ã„ï¼ˆæ—¥æœ¬èªžå¯ï¼‰: "
+set /p "NAME=–¼‘O‚ð“ü—Í‚µ‚Ä‚­‚¾‚³‚¢i“ú–{Œê‰Âj: "
 if "%NAME%"=="" (
-  echo åå‰ã¯å¿…é ˆã§ã™ã€‚
+  echo –¼‘O‚Í•K{‚Å‚·B
   goto :eof
 )
 
@@ -27,12 +27,12 @@ for /f "usebackq tokens=* delims=" %%A in (
 )
 
 if "%MAC%"=="" (
-  echo MAC ã‚¢ãƒ‰ãƒ¬ã‚¹ã®å–å¾—ã«å¤±æ•—ã—ã¾ã—ãŸã€‚
+  echo MAC ƒAƒhƒŒƒX‚ÌŽæ“¾‚ÉŽ¸”s‚µ‚Ü‚µ‚½B
   goto :eof
 )
 
-echo ä½¿ç”¨ã™ã‚‹ MAC ã‚¢ãƒ‰ãƒ¬ã‚¹: %MAC%
-echo ã‚µãƒ¼ãƒãƒ¼ã¸é€ä¿¡ã—ã¦ã„ã¾ã™... (%SERVER_URL%)
+echo Žg—p‚·‚é MAC ƒAƒhƒŒƒX: %MAC%
+echo ƒT[ƒo[‚Ö‘—M‚µ‚Ä‚¢‚Ü‚·... (%SERVER_URL%)
 
 powershell -NoProfile -Command ^
   "[Console]::OutputEncoding = [Text.Encoding]::UTF8;" ^
@@ -44,9 +44,9 @@ powershell -NoProfile -Command ^
   "Invoke-RestMethod -Method Post -Uri '%SERVER_URL%' -ContentType 'application/json; charset=utf-8' -Body ([System.Text.Encoding]::UTF8.GetBytes($payload)) | ConvertTo-Json -Depth 3 | Write-Host"
 
 if errorlevel 1 (
-  echo ãƒªã‚¯ã‚¨ã‚¹ãƒˆå¤±æ•—â€¦
+  echo ƒŠƒNƒGƒXƒgŽ¸”sc
 ) else (
-  echo ç™»éŒ²ãŒå®Œäº†ã—ã¾ã—ãŸã€‚
+  echo “o˜^‚ªŠ®—¹‚µ‚Ü‚µ‚½B
 )
 
 endlocal
