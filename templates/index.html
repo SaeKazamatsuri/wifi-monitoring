@@ -278,7 +278,7 @@
           const intensity = value / max;
           const hue = 210 - Math.round(intensity * 120);
           const lightness = 90 - Math.round(intensity * 45);
-          const background = value === 0 ? "#f6f8fa" : `hsl(${hue}, 70%, ${lightness}%)`;
+          const background = value === 0 ? "#d8dde3" : `hsl(${hue}, 70%, ${lightness}%)`;
           html += `<td class="heat-cell" style="background:${background}">${value}</td>`;
         });
         html += "</tr>";

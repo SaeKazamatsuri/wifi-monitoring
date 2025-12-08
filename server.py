@@ -8,7 +8,7 @@ import threading
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, TypedDict
+from typing import Dict, List, Optional, Set, TypedDict
 
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.responses import HTMLResponse
@@ -232,33 +232,36 @@ def build_heatmap_payload() -> HeatmapResponse:
     if not rows:
         return HeatmapResponse(dates=[], times=[], matrix=[], max_value=0)
     counts: Dict[str, Dict[str, int]] = {}
-    all_times: set[str] = set()
+    dates: Set[str] = set()
+    all_times: Set[str] = set()
     max_value = 0
     for row in rows:
-        if row["connected"] != 1:
-            continue
         try:
             ts = datetime.strptime(row["timestamp"], "%Y-%m-%d %H:%M")
         except ValueError:
             continue
         date_key = ts.date().isoformat()
         time_key = ts.strftime("%H:%M")
+        dates.add(date_key)
         all_times.add(time_key)
-        counts.setdefault(date_key, {})
-        counts[date_key][time_key] = counts[date_key].get(time_key, 0) + 1
-        if counts[date_key][time_key] > max_value:
-            max_value = counts[date_key][time_key]
-    if not counts:
+        if row["connected"] == 1:
+            counts.setdefault(date_key, {})
+            counts[date_key][time_key] = counts[date_key].get(time_key, 0) + 1
+            if counts[date_key][time_key] > max_value:
+                max_value = counts[date_key][time_key]
+        else:
+            counts.setdefault(date_key, {})
+    if not dates or not all_times:
         return HeatmapResponse(dates=[], times=[], matrix=[], max_value=0)
-    dates = sorted(counts.keys())
+    dates_list = sorted(dates)
     times = sorted(all_times)
     matrix: List[List[int]] = []
-    for date in dates:
+    for date in dates_list:
         row_values = []
         for time in times:
             row_values.append(counts.get(date, {}).get(time, 0))
         matrix.append(row_values)
-    return HeatmapResponse(dates=dates, times=times, matrix=matrix, max_value=max_value)
+    return HeatmapResponse(dates=dates_list, times=times, matrix=matrix, max_value=max_value)
 
 
 @app.get("/", response_class=HTMLResponse)
