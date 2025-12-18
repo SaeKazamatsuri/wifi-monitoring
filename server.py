@@ -18,12 +18,13 @@ from pydantic import BaseModel, Field, field_validator
 from main import DEFAULT_INTERVAL_MINUTES, RouterMonitor, load_config
 
 
-DATA_DIR = Path("data")
+BASE_DIR = Path(__file__).resolve().parent
+DATA_DIR = BASE_DIR / "data"
 MEMBERS_PATH = DATA_DIR / "members.json"
 LOG_DIR = DATA_DIR / "logs"
-TEMPLATES_DIR = Path(__file__).parent / "templates"
-CONFIG_PATH = Path("config.json")
-OUTPUT_DIR = Path("output")
+TEMPLATES_DIR = BASE_DIR / "templates"
+CONFIG_PATH = BASE_DIR / "config.json"
+OUTPUT_DIR = BASE_DIR / "output"
 HEATMAP_OUTPUT_PATH = OUTPUT_DIR / "heatmap_total.png"
 UNKNOWN_LOG_PATH = DATA_DIR / "unknown.csv"
 WIRELESS_LOG_PATH = DATA_DIR / "wireless.csv"
