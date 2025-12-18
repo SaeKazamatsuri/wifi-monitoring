@@ -6,7 +6,7 @@ import logging
 import re
 import threading
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Set, TypedDict
 
@@ -15,7 +15,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field, field_validator
 
-from main import RouterMonitor, load_config
+from main import DEFAULT_INTERVAL_MINUTES, RouterMonitor, load_config
 
 
 DATA_DIR = Path("data")
@@ -29,6 +29,12 @@ UNKNOWN_LOG_PATH = DATA_DIR / "unknown.csv"
 WIRELESS_LOG_PATH = DATA_DIR / "wireless.csv"
 
 MAC_PATTERN = re.compile(r"(?:[0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}")
+TIMESTAMP_FORMATS = (
+    "%Y-%m-%d %H:%M",
+    "%Y/%m/%d %H:%M",
+    "%Y-%m-%d %H:%M:%S",
+    "%Y/%m/%d %H:%M:%S",
+)
 MEMBERS_LOCK = threading.Lock()
 
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
@@ -74,6 +80,46 @@ def normalize_mac(mac: str) -> str:
     if not MAC_PATTERN.fullmatch(cleaned):
         raise ValueError(f"Invalid MAC address: {mac}")
     return cleaned
+
+
+def parse_timestamp(value: str) -> Optional[datetime]:
+    cleaned = value.strip()
+    if not cleaned:
+        return None
+    for fmt in TIMESTAMP_FORMATS:
+        try:
+            return datetime.strptime(cleaned, fmt)
+        except ValueError:
+            continue
+    try:
+        return datetime.fromisoformat(cleaned)
+    except ValueError:
+        return None
+
+
+def get_interval_minutes() -> int:
+    if MONITOR_INSTANCE:
+        return max(1, int(MONITOR_INSTANCE.config.interval_minutes))
+    try:
+        config = load_config(CONFIG_PATH)
+        return max(1, int(config.interval_minutes))
+    except Exception:  # pylint: disable=broad-except
+        return max(1, int(DEFAULT_INTERVAL_MINUTES))
+
+
+def align_timestamp(ts: datetime, interval_minutes: int) -> datetime:
+    interval = max(1, int(interval_minutes))
+    if interval == 1:
+        return ts.replace(second=0, microsecond=0)
+    minutes = ts.hour * 60 + ts.minute
+    remainder = minutes % interval
+    if remainder >= interval / 2:
+        minutes += interval - remainder
+    else:
+        minutes -= remainder
+    base = datetime(ts.year, ts.month, ts.day)
+    aligned = base + timedelta(minutes=minutes)
+    return aligned.replace(second=0, microsecond=0)
 
 
 def ensure_data_dirs() -> None:
@@ -231,15 +277,16 @@ def build_heatmap_payload() -> HeatmapResponse:
     rows = iter_log_rows()
     if not rows:
         return HeatmapResponse(dates=[], times=[], matrix=[], max_value=0)
+    interval_minutes = get_interval_minutes()
     counts: Dict[str, Dict[str, int]] = {}
     dates: Set[str] = set()
     all_times: Set[str] = set()
     max_value = 0
     for row in rows:
-        try:
-            ts = datetime.strptime(row["timestamp"], "%Y-%m-%d %H:%M")
-        except ValueError:
+        ts = parse_timestamp(row["timestamp"])
+        if not ts:
             continue
+        ts = align_timestamp(ts, interval_minutes)
         date_key = ts.date().isoformat()
         time_key = ts.strftime("%H:%M")
         dates.add(date_key)
@@ -254,7 +301,7 @@ def build_heatmap_payload() -> HeatmapResponse:
     if not dates or not all_times:
         return HeatmapResponse(dates=[], times=[], matrix=[], max_value=0)
     dates_list = sorted(dates)
-    times = sorted(all_times)
+    times = sorted(all_times, key=lambda t: datetime.strptime(t, "%H:%M"))
     matrix: List[List[int]] = []
     for date in dates_list:
         row_values = []
